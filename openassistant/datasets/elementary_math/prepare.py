@@ -1,6 +1,10 @@
+import json
+import os
 import random
 import sys
 from functools import reduce
+
+from tqdm import trange
 
 
 def ordinal(n: int):
@@ -293,35 +297,36 @@ def multiplication(factor_0: int, factor_1: int, explain_final_addition: bool):
 
     product = factor_0 * factor_1
 
-    terms_joined = " + ".join(terms)
+    if len(terms) > 1:
+        terms_joined = " + ".join(terms)
 
-    if explain_final_addition:
-        sums = [
-            "Step {step}:\nWe collect the answer for each column and add them up, so {terms_joined}. Here's how we can do that step-by-step.",
-            "Step {step}:\nThe last thing to do is calculate {terms_joined} which is the all of our column answers added together. These are the steps to do that.",
-        ]
+        if explain_final_addition:
+            sums = [
+                "Step {step}:\nWe collect the answer for each column and add them up, so {terms_joined}. Here's how we can do that step-by-step.",
+                "Step {step}:\nThe last thing to do is calculate {terms_joined} which is the all of our column answers added together. These are the steps to do that.",
+            ]
 
-        result += (
-            sums[random.randint(0, len(sums) - 1)].format(step=step, terms_joined=terms_joined, product=product)
-            + "\n\n"
-        )
-        step += 1
+            result += (
+                sums[random.randint(0, len(sums) - 1)].format(step=step, terms_joined=terms_joined, product=product)
+                + "\n\n"
+            )
+            step += 1
 
-        result, _ = addition(
-            *[int(x) for x in terms], result=result, step=step, include_intro=False, include_answer=False
-        )
+            result, _ = addition(
+                *[int(x) for x in terms], result=result, step=step, include_intro=False, include_answer=False
+            )
 
-    else:
-        sums = [
-            "Step {step}:\nWe collect the answer for each column and add them up, so {terms_joined} = {product}.",
-            "Step {step}:\nThe last thing to do is calculate {terms_joined} which is the all of our column answers added together, giving us {product}.",
-        ]
+        else:
+            sums = [
+                "Step {step}:\nWe collect the answer for each column and add them up, so {terms_joined} = {product}.",
+                "Step {step}:\nThe last thing to do is calculate {terms_joined} which is the all of our column answers added together, giving us {product}.",
+            ]
 
-        result += (
-            sums[random.randint(0, len(sums) - 1)].format(step=step, terms_joined=terms_joined, product=product)
-            + "\n\n"
-        )
-        step += 1
+            result += (
+                sums[random.randint(0, len(sums) - 1)].format(step=step, terms_joined=terms_joined, product=product)
+                + "\n\n"
+            )
+            step += 1
 
     result += f"Answer:\n{factor_0} * {factor_1} = {product}"
     return result, product
@@ -332,14 +337,18 @@ def main(
     min_operands=2,
     max_operands=5,
     operand_min=1,
-    operand_max=9999,
-    per_operation=1,
+    operand_max=99_999,
+    per_operation=333_333,
     seed=42,
+    validation_split=0.1,
+    test_split=0.1,
 ):
     random.seed(seed)
 
+    longest_token_length = 0
+
     data = []
-    for i in range(0, per_operation):
+    for i in trange(0, per_operation):
         for operation in ["+", "-", "*"]:
             if operation == "+":
                 num_operands = random.randint(min_operands, max_operands)
@@ -356,10 +365,31 @@ def main(
             else:
                 raise RuntimeError(f"Unknown operation {operation}")
 
-            data.append({"text": text, "operation": operation, "operands": operands, "solution": solution})
+            longest_token_length = max(longest_token_length, len(text.split(" ")))
 
-    for i in range(0, len(data)):
-        print(data[i]["text"])
+            data.append(
+                json.dumps({"text": text, "operation": operation, "operands": operands, "solution": solution}) + "\n"
+            )
+
+    print(f"Longest approx. token length: {longest_token_length}")
+
+    validation_size = int(len(data) * validation_split)
+    test_size = int(len(data) * test_split)
+
+    validation = data[0:validation_size]
+    test = data[validation_size : test_size + validation_size]
+    train = data[test_size + validation_size :]
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    random.shuffle(train)
+    open(os.path.join(output_dir, "train.jsonl"), "w", encoding="utf-8").writelines(train)
+
+    random.shuffle(validation)
+    open(os.path.join(output_dir, "valid.jsonl"), "w", encoding="utf-8").writelines(validation)
+
+    random.shuffle(test)
+    open(os.path.join(output_dir, "test.jsonl"), "w", encoding="utf-8").writelines(test)
 
 
 if __name__ == "__main__":
